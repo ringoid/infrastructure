@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Neo4j ECS Cluster
+
+Parameters:
+
+  Neo4jContainerTag:
+    Type: String
+    Default: latest
+    Description: ECS Instance type
+
+  Neo4jContainerName:
+    Type: String
+    Default: 410568660038.dkr.ecr.eu-west-2.amazonaws.com/neo4jserver
+    Description: ECS Instance type
+
+  CpuValue:
+    Type: Number
+    Default: 4096
+    Description: Cpu value
+
+  MemoryValue:
+    Type: String
+    Default: 14GB
+    Description: Memory value
+
+  MemoryValueNumber:
+    Type: Number
+    Default: 14000
+    Description: Memory value number
+
+  MinClusterSize:
+    Type: Number
+    Default: 1
+    Description: Min number of instances in the cluster
+
+  MaxClusterSize:
+    Type: Number
+    Default: 1
+    Description: Min number of instances in the cluster
+
+  DefaultVpc:
+    Type: String
+    Default: vpc-496be521
+    Description: Default VPC ID
+
+  ImageId:
+    Type: String
+    Default: ami-2e9866c5
+    Description: Image Id for ECS Cluster
+
+  InstanceType:
+    Type: String
+    Default: m5.xlarge
+    Description: ECS Instance type
+
+Resources:
+
+  Neo4jEcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: Neo4jCluster
+
+  Neo4jEcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: neo4j-security-group
+      GroupDescription: ECS Security Group
+      VpcId: !Ref DefaultVpc
+      SecurityGroupIngress:
+        -
+          IpProtocol: tcp
+          FromPort: 7474
+          ToPort: 7474
+          SourceSecurityGroupId: sg-0faf02aeb0d177c5e
+        -
+          IpProtocol: tcp
+          FromPort: 7473
+          ToPort: 7473
+          SourceSecurityGroupId: sg-0faf02aeb0d177c5e
+        -
+          IpProtocol: tcp
+          FromPort: 7687
+          ToPort: 7687
+          SourceSecurityGroupId: sg-0faf02aeb0d177c5e
+      Tags:
+        - Key: Company
+          Value: Ringoid
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service: ec2.amazonaws.com
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+
+  Neo4jEcsClusterLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      AssociatePublicIpAddress: false
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroups: [ !Ref Neo4jEcsSecurityGroup ]
+      BlockDeviceMappings:
+          - DeviceName: "/dev/sdm"
+            Ebs:
+              VolumeType: "gp2"
+              Iops: "300"
+              DeleteOnTermination: "true"
+              VolumeSize: "200"
+      UserData:
+        Fn::Base64: !Sub |
+           #!/bin/bash
+           echo ECS_CLUSTER=${Neo4jEcsCluster} >> /etc/ecs/ecs.config
+           yum install -y aws-cfn-bootstrap
+           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource Neo4jEcsAutoscalingGroup --region ${AWS::Region}
+
+  Neo4jEcsAutoscalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: Neo4jAutoScaleGroup
+      LaunchConfigurationName: !Ref Neo4jEcsClusterLaunchConfiguration
+      MinSize: !Ref MinClusterSize
+      MaxSize: !Ref MaxClusterSize
+      HealthCheckType: EC2
+      VPCZoneIdentifier:
+        - subnet-1552c07c
+        - subnet-c8ad73b2
+        - subnet-e114f9ad
+      Tags:
+        - Key: Company
+          Value: Ringoid
+          PropagateAtLaunch: true
+
+  Neo4jTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: Neo4jClusterFamily
+      ExecutionRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
+      TaskRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
+      Cpu: !Ref CpuValue
+      Memory: !Ref MemoryValue
+      ContainerDefinitions:
+        - Name: Neo4jContainerDefinition
+          Image: !Join [':', [!Ref Neo4jContainerName, !Ref Neo4jContainerTag]]
+          Cpu: !Ref CpuValue
+          Memory: !Ref MemoryValueNumber
+          MemoryReservation: !Ref MemoryValueNumber
+          PortMappings:
+            - ContainerPort: 7474
+              HostPort: 7474
+            - ContainerPort: 7687
+              HostPort: 7687
+          Ulimits:
+            - Name: nofile
+              HardLimit: 100000
+              SoftLimit: 100000
+          Essential: 'true'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref Neo4jCloudwatchLogsGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: neo4j
+
+  Neo4jCloudwatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: Neo4jEcsCluster
+      RetentionInDays: 14
+
+  Neo4jService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: Neo4jService
+      Cluster: !Ref Neo4jEcsCluster
+      LaunchType: EC2
+      DesiredCount: 1
+      TaskDefinition: !Ref Neo4jTaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: "arn:aws:elasticloadbalancing:eu-west-2:410568660038:targetgroup/test/92c2db38b078286b"
+          ContainerPort: 7474
+          ContainerName: Neo4jContainerDefinition
