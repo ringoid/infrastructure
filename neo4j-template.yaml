@@ -3,15 +3,28 @@ Description: Neo4j ECS Cluster
 
 Parameters:
 
+  Env:
+    Type: String
+    AllowedValues:
+      - stage
+      - prod
+    Default: stage
+    Description: Enter env name
+
   Neo4jContainerTag:
     Type: String
     Default: latest
-    Description: ECS Instance type
+    Description: Docker tag
 
   Neo4jContainerName:
     Type: String
     Default: 410568660038.dkr.ecr.eu-west-2.amazonaws.com/neo4jserver
-    Description: ECS Instance type
+    Description: Docker name
+
+  ContainerName:
+    Type: String
+    Default: neo4j-container
+    Description: Container name in ECS
 
   CpuValue:
     Type: Number
@@ -63,7 +76,7 @@ Resources:
   Neo4jEcsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: neo4j-security-group
+      GroupName: !Join [ "-", [ !Ref Env, neo4j-security-group ]]
       GroupDescription: ECS Security Group
       VpcId: !Ref DefaultVpc
       SecurityGroupIngress:
@@ -82,9 +95,16 @@ Resources:
           FromPort: 7687
           ToPort: 7687
           SourceSecurityGroupId: sg-0faf02aeb0d177c5e
+        -
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0"
       Tags:
         - Key: Company
           Value: Ringoid
+        - Key: Env
+          Value: !Ref Env
 
   InstanceRole:
     Type: AWS::IAM::Role
@@ -124,9 +144,10 @@ Resources:
     Properties:
       ImageId: !Ref ImageId
       InstanceType: !Ref InstanceType
-      AssociatePublicIpAddress: false
+      AssociatePublicIpAddress: true
       IamInstanceProfile: !Ref InstanceProfile
       SecurityGroups: [ !Ref Neo4jEcsSecurityGroup ]
+      KeyName: mikhail
       BlockDeviceMappings:
           - DeviceName: "/dev/sdm"
             Ebs:
@@ -144,7 +165,7 @@ Resources:
   Neo4jEcsAutoscalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      AutoScalingGroupName: Neo4jAutoScaleGroup
+      AutoScalingGroupName: !Join [ "-", [ !Ref Env, neo4j-autoscale-group ]]
       LaunchConfigurationName: !Ref Neo4jEcsClusterLaunchConfiguration
       MinSize: !Ref MinClusterSize
       MaxSize: !Ref MaxClusterSize
@@ -157,17 +178,20 @@ Resources:
         - Key: Company
           Value: Ringoid
           PropagateAtLaunch: true
+        - Key: Env
+          Value: !Ref Env
+          PropagateAtLaunch: true
 
   Neo4jTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: Neo4jClusterFamily
+      Family: !Join [ "-", [ !Ref Env, neo4j-cluster-family ]]
       ExecutionRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
       TaskRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
       Cpu: !Ref CpuValue
       Memory: !Ref MemoryValue
       ContainerDefinitions:
-        - Name: Neo4jContainerDefinition
+        - Name: !Ref ContainerName
           Image: !Join [':', [!Ref Neo4jContainerName, !Ref Neo4jContainerTag]]
           Cpu: !Ref CpuValue
           Memory: !Ref MemoryValueNumber
@@ -192,13 +216,13 @@ Resources:
   Neo4jCloudwatchLogsGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: Neo4jEcsCluster
+      LogGroupName: !Join [ "-", [ !Ref Env, neo4j-logs ]]
       RetentionInDays: 14
 
   Neo4jService:
     Type: AWS::ECS::Service
     Properties:
-      ServiceName: Neo4jService
+      ServiceName: !Join [ "-", [ !Ref Env, neo4j-service ]]
       Cluster: !Ref Neo4jEcsCluster
       LaunchType: EC2
       DesiredCount: 1
@@ -206,4 +230,4 @@ Resources:
       LoadBalancers:
         - TargetGroupArn: "arn:aws:elasticloadbalancing:eu-west-2:410568660038:targetgroup/test/92c2db38b078286b"
           ContainerPort: 7474
-          ContainerName: Neo4jContainerDefinition
+          ContainerName: !Ref ContainerName
