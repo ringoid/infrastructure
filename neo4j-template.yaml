@@ -148,13 +148,6 @@ Resources:
       IamInstanceProfile: !Ref InstanceProfile
       SecurityGroups: [ !Ref Neo4jEcsSecurityGroup ]
       KeyName: mikhail
-      BlockDeviceMappings:
-          - DeviceName: "/dev/sdm"
-            Ebs:
-              VolumeType: "gp2"
-              Iops: "300"
-              DeleteOnTermination: "true"
-              VolumeSize: "200"
       UserData:
         Fn::Base64: !Sub |
            #!/bin/bash
@@ -190,12 +183,19 @@ Resources:
       TaskRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
       Cpu: !Ref CpuValue
       Memory: !Ref MemoryValue
+      Volumes:
+        - Name: my-vol
       ContainerDefinitions:
         - Name: !Ref ContainerName
           Image: !Join [':', [!Ref Neo4jContainerName, !Ref Neo4jContainerTag]]
           Cpu: !Ref CpuValue
           Memory: !Ref MemoryValueNumber
           MemoryReservation: !Ref MemoryValueNumber
+          MountPoints:
+            - ContainerPath: /data
+              SourceVolume: my-vol
+            - ContainerPath: /logs
+              SourceVolume: my-vol
           PortMappings:
             - ContainerPort: 7474
               HostPort: 7474
