@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Analytics Stack
+
+Parameters:
+
+  Env:
+    Type: String
+    AllowedValues:
+      - stage
+      - prod
+    Default: stage
+    Description: Enter env name
+
+Resources:
+
+  AnalyticBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Join [ "-", [ !Ref Env, ringoid-analytics-data ]]
+        Tags:
+          - Key: Company
+            Value: Ringoid
+          - Key: Env
+            Value: !Ref Env
+
+
+  DeliveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref 'AWS::AccountId'
+
+  DeliveryPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Join [ "-", [ !Ref Env, firehose_delivery_policy ]]
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:AbortMultipartUpload'
+              - 's3:GetBucketLocation'
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:ListBucketMultipartUploads'
+              - 's3:PutObject'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref AnalyticBucket
+              - !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref AnalyticBucket
+                  - '*'
+      Roles:
+        - !Ref DeliveryRole
+
+  DeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    DependsOn:
+      - DeliveryPolicy
+    Properties:
+      DeliveryStreamName: !Join [ "-", [ !Ref Env, analytics-delivery-stream ]]
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Join
+          - ''
+          - - 'arn:aws:s3:::'
+            - !Ref AnalyticBucket
+        BufferingHints:
+          IntervalInSeconds: '60'
+          SizeInMBs: '5'
+        CompressionFormat: GZIP
+        Prefix: 'ringoid/'
+        RoleARN: !GetAtt DeliveryRole.Arn
+
+Outputs:
+  AnalyticBucket:
+    Value: !Join ['', ['https://', !GetAtt [AnalyticBucket, DomainName]]]
+    Description: Name of Analytic S3 bucket to hold application data
+
+  DeliveryStreamExport:
+    Value: !Ref DeliveryStream
+    Export:
+      Name: !Join [ "-", [ !Ref Env, DeliveryStreamExportName] ]
