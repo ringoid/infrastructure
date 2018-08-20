@@ -71,12 +71,12 @@ Resources:
   Neo4jEcsCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: Neo4jCluster
+      ClusterName: Neo4jCluster-2
 
   Neo4jEcsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Join [ "-", [ !Ref Env, neo4j-security-group ]]
+      GroupName: !Join [ "-", [ !Ref Env, neo4j-security-group-2 ]]
       GroupDescription: ECS Security Group
       VpcId: !Ref DefaultVpc
       SecurityGroupIngress:
@@ -158,7 +158,7 @@ Resources:
   Neo4jEcsAutoscalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      AutoScalingGroupName: !Join [ "-", [ !Ref Env, neo4j-autoscale-group ]]
+      AutoScalingGroupName: !Join [ "-", [ !Ref Env, neo4j-autoscale-group-2 ]]
       LaunchConfigurationName: !Ref Neo4jEcsClusterLaunchConfiguration
       MinSize: !Ref MinClusterSize
       MaxSize: !Ref MaxClusterSize
@@ -178,7 +178,7 @@ Resources:
   Neo4jTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Join [ "-", [ !Ref Env, neo4j-cluster-family ]]
+      Family: !Join [ "-", [ !Ref Env, neo4j-cluster-family-2 ]]
       ExecutionRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
       TaskRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
       Cpu: !Ref CpuValue
@@ -216,18 +216,84 @@ Resources:
   Neo4jCloudwatchLogsGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Join [ "-", [ !Ref Env, neo4j-logs ]]
+      LogGroupName: !Join [ "-", [ !Ref Env, neo4j-logs-2 ]]
       RetentionInDays: 14
 
   Neo4jService:
+    DependsOn: Neo4jLoadBalancerListener
     Type: AWS::ECS::Service
     Properties:
-      ServiceName: !Join [ "-", [ !Ref Env, neo4j-service ]]
+      ServiceName: !Join [ "-", [ !Ref Env, neo4j-service-2 ]]
       Cluster: !Ref Neo4jEcsCluster
       LaunchType: EC2
       DesiredCount: 1
       TaskDefinition: !Ref Neo4jTaskDefinition
+      Role: !Ref ECSServiceRole
       LoadBalancers:
-        - TargetGroupArn: "arn:aws:elasticloadbalancing:eu-west-2:410568660038:targetgroup/test/92c2db38b078286b"
+        - TargetGroupArn: !Ref Neo4jLoadBalancerTargetGroup
           ContainerPort: 7474
           ContainerName: !Ref ContainerName
+
+  ECSServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['elasticloadbalancing:DeregisterInstancesFromLoadBalancer', 'elasticloadbalancing:DeregisterTargets',
+              'elasticloadbalancing:Describe*', 'elasticloadbalancing:RegisterInstancesWithLoadBalancer',
+              'elasticloadbalancing:RegisterTargets', 'ec2:Describe*', 'ec2:AuthorizeSecurityGroupIngress']
+            Resource: '*'
+
+  Neo4jLoadBalancer:
+    DependsOn: Neo4jLoadBalancerSecurityGroup
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Join [ "-", [ !Ref Env, neo4j-elb-2 ]]
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref Neo4jLoadBalancerSecurityGroup
+      Subnets:
+        - subnet-1552c07c
+        - subnet-c8ad73b2
+        - subnet-e114f9ad
+
+  Neo4jLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref Neo4jLoadBalancerTargetGroup
+      LoadBalancerArn: !Ref Neo4jLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  Neo4jLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join [ "-", [ !Ref Env, neo4j-elb-security-group-2 ]]
+      GroupDescription: ECS Security Group
+      VpcId: !Ref DefaultVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  Neo4jLoadBalancerTargetGroup:
+    DependsOn: Neo4jLoadBalancer
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Join [ "-", [ !Ref Env, neo4j-elb-target-group-2 ]]
+      Port: 7474
+      Protocol: HTTP
+      VpcId: !Ref DefaultVpc
