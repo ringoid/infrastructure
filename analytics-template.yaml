@@ -1,6 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Analytics Stack
 
+Mappings:
+  DeliveryStreamNameMap:
+    stage:
+      name: stage-analytics-delivery-stream
+    prod:
+      name: prod-analytics-delivery-stream
+
 Parameters:
 
   Env:
@@ -72,7 +79,7 @@ Resources:
     DependsOn:
       - DeliveryPolicy
     Properties:
-      DeliveryStreamName: !Join [ "-", [ !Ref Env, analytics-delivery-stream ]]
+      DeliveryStreamName: !FindInMap [DeliveryStreamNameMap, !Ref Env, name]
       DeliveryStreamType: DirectPut
       ExtendedS3DestinationConfiguration:
         BucketARN: !Join
@@ -88,6 +95,6 @@ Resources:
 
 Outputs:
   DeliveryStreamExport:
-    Value: !Ref DeliveryStream
+    Value: !FindInMap [DeliveryStreamNameMap, !Ref Env, name]
     Export:
       Name: !Join [ "-", [ !Ref Env, DeliveryStreamExportName] ]

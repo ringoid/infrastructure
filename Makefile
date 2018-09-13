@@ -5,7 +5,9 @@ IMAGE_TAG = 410568660038.dkr.ecr.eu-west-1.amazonaws.com/$(SERVICE_NAME):$(VERSI
 
 BUILD_ARGS=
 
-all: stage-deploy-neo4j stage-deploy-analytics
+all: stage-deploy-analytics
+
+all-with-neo4j: stage-deploy-neo4j stage-deploy-analytics
 
 build-neo4j-docker:
 	@echo '--- Building neo4jserver Docker image ---'
