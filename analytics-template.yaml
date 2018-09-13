@@ -87,10 +87,6 @@ Resources:
         RoleARN: !GetAtt DeliveryRole.Arn
 
 Outputs:
-  AnalyticBucket:
-    Value: !Join ['', ['https://', !GetAtt [AnalyticBucket, DomainName]]]
-    Description: Name of Analytic S3 bucket to hold application data
-
   DeliveryStreamExport:
     Value: !Ref DeliveryStream
     Export:
