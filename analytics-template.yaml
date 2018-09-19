@@ -30,7 +30,6 @@ Resources:
           - Key: Env
             Value: !Ref Env
 
-
   DeliveryRole:
     Type: AWS::IAM::Role
     Properties:
@@ -98,3 +97,4 @@ Outputs:
     Value: !FindInMap [DeliveryStreamNameMap, !Ref Env, name]
     Export:
       Name: !Join [ "-", [ !Ref Env, DeliveryStreamExportName] ]
+

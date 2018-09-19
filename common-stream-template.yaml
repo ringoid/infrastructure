@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Common Stream Stack
+
+Mappings:
+  CommonStreamNameMap:
+    stage:
+      name: stage-CommonEventStream
+    prod:
+      name: prod-CommonEventStream
+
+
+Parameters:
+
+  Env:
+    Type: String
+    AllowedValues:
+      - stage
+      - prod
+    Default: stage
+    Description: Enter env name
+
+Resources:
+
+  CommonEventStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Join [ "-", [ !Ref Env, CommonEventStream] ]
+      RetentionPeriodHours: 24
+      ShardCount: 1
+      Tags:
+        - Key: Company
+          Value: Ringoid
+        - Key: Environment
+          Value: !Ref Env
+
+Outputs:
+  CommonEventStreamExport:
+    Value:
+      Fn::GetAtt:
+        - CommonEventStream
+        - Arn
+    Export:
+      Name: !Join [ "-", [ !Ref Env, CommonEventStreamExport] ]
+  CommonEventStreamNameExport:
+    Value: !FindInMap [CommonStreamNameMap, !Ref Env, name]
+    Export:
+      Name: !Join [ "-", [ !Ref Env, CommonEventStreamExportName] ]
