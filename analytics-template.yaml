@@ -86,8 +86,8 @@ Resources:
           - - 'arn:aws:s3:::'
             - !Ref AnalyticBucket
         BufferingHints:
-          IntervalInSeconds: '60'
-          SizeInMBs: '5'
+          IntervalInSeconds: 900
+          SizeInMBs: 128
         CompressionFormat: GZIP
         Prefix: 'ringoid/'
         RoleARN: !GetAtt DeliveryRole.Arn
