@@ -7,6 +7,11 @@ Mappings:
       name: stage-CommonEventStream
     prod:
       name: prod-CommonEventStream
+  InternalStreamNameMap:
+    stage:
+      name: stage-InternalEventStream
+    prod:
+      name: prod-InternalEventStream
 
 
 Parameters:
@@ -33,6 +38,18 @@ Resources:
         - Key: Environment
           Value: !Ref Env
 
+  InternalEventStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Join [ "-", [ !Ref Env, InternalEventStream] ]
+      RetentionPeriodHours: 24
+      ShardCount: 1
+      Tags:
+        - Key: Company
+          Value: Ringoid
+        - Key: Environment
+          Value: !Ref Env
+
 Outputs:
   CommonEventStreamExport:
     Value:
@@ -45,3 +62,7 @@ Outputs:
     Value: !FindInMap [CommonStreamNameMap, !Ref Env, name]
     Export:
       Name: !Join [ "-", [ !Ref Env, CommonEventStreamExportName] ]
+  InternalEventStreamNameExport:
+    Value: !FindInMap [InternalStreamNameMap, !Ref Env, name]
+    Export:
+      Name: !Join [ "-", [ !Ref Env, InternalEventStreamExportName] ]
