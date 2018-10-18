@@ -62,6 +62,13 @@ Outputs:
     Value: !FindInMap [CommonStreamNameMap, !Ref Env, name]
     Export:
       Name: !Join [ "-", [ !Ref Env, CommonEventStreamExportName] ]
+  InternalEventStreamExport:
+    Value:
+      Fn::GetAtt:
+        - InternalEventStream
+        - Arn
+    Export:
+      Name: !Join [ "-", [ !Ref Env, InternalEventStreamExport] ]
   InternalEventStreamNameExport:
     Value: !FindInMap [InternalStreamNameMap, !Ref Env, name]
     Export:
