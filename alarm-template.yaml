@@ -19,6 +19,11 @@ Mappings:
       stage: stage-alarm-sender-infrastructure
       prod: prod-alarm-sender-infrastructure
 
+  SlackWebhookUrlMap:
+    WebhookUrl:
+      stage: "https://hooks.slack.com/services/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"
+      prod: "https://hooks.slack.com/services/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"
+
 
 Parameters:
 
@@ -39,6 +44,7 @@ Globals:
       Variables:
         ENV: !Ref Env
         PAPERTRAIL_LOG_ADDRESS: !FindInMap [LogMap, PapertrailLog, !Ref Env]
+        SLACK_WEBHOOK_URL: !FindInMap [SlackWebhookUrlMap, WebhookUrl, !Ref Env]
     Tags:
       Company: Ringoid
       Service: infrastructure
