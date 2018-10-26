@@ -1,14 +1,17 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Alarm Stack
+Description: Infrastructure Alarm Stack
 
 Mappings:
   LogMap:
     PapertrailLog:
       stage: "logs7.papertrailapp.com:23213"
-      prod: "should-be-prod-papertril-endpoint"
+      test: "logs7.papertrailapp.com:16637"
+      prod: "logs7.papertrailapp.com:16747"
 
   SNSAlarmTopicNameMap:
+    test:
+      name: test-alarm-topic
     stage:
       name: stage-alarm-topic
     prod:
@@ -16,11 +19,13 @@ Mappings:
 
   FunctionName:
     AlarmSenderFunction:
+      test: test-alarm-sender-infrastructure
       stage: stage-alarm-sender-infrastructure
       prod: prod-alarm-sender-infrastructure
 
   SlackWebhookUrlMap:
     WebhookUrl:
+      test: "https://hooks.slack.com/services/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"
       stage: "https://hooks.slack.com/services/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"
       prod: "https://hooks.slack.com/services/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"
 
@@ -32,6 +37,7 @@ Parameters:
     AllowedValues:
       - stage
       - prod
+      - test
     Default: stage
     Description: Enter env name
 

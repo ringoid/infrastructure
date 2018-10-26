@@ -1,13 +1,18 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Common Stream Stack
+Description: Infrastructure Common Stream Stack
 
 Mappings:
   CommonStreamNameMap:
+    test:
+      name: test-CommonEventStream
     stage:
       name: stage-CommonEventStream
     prod:
       name: prod-CommonEventStream
+
   InternalStreamNameMap:
+    test:
+      name: test-InternalEventStream
     stage:
       name: stage-InternalEventStream
     prod:
@@ -21,6 +26,7 @@ Parameters:
     AllowedValues:
       - stage
       - prod
+      - test
     Default: stage
     Description: Enter env name
 
@@ -37,6 +43,8 @@ Resources:
           Value: Ringoid
         - Key: Environment
           Value: !Ref Env
+        - Key: Service
+          Value: infrastructure
 
   InternalEventStream:
     Type: AWS::Kinesis::Stream
@@ -49,6 +57,9 @@ Resources:
           Value: Ringoid
         - Key: Environment
           Value: !Ref Env
+        - Key: Service
+          Value: infrastructure
+
 
 Outputs:
   CommonEventStreamExport:

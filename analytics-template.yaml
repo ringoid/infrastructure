@@ -1,8 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Analytics Stack
+Description: Infrastructure Analytics Stack
 
 Mappings:
   DeliveryStreamNameMap:
+    test:
+      name: test-analytics-delivery-stream
     stage:
       name: stage-analytics-delivery-stream
     prod:
@@ -15,6 +17,7 @@ Parameters:
     AllowedValues:
       - stage
       - prod
+      - test
     Default: stage
     Description: Enter env name
 
@@ -22,6 +25,8 @@ Resources:
 
   AnalyticBucket:
       Type: AWS::S3::Bucket
+      DependsOn:
+        - DeliveryRole
       Properties:
         BucketName: !Join [ "-", [ !Ref Env, ringoid-analytics-data ]]
         Tags:
@@ -29,10 +34,13 @@ Resources:
             Value: Ringoid
           - Key: Env
             Value: !Ref Env
+          - Key: Service
+            Value: infrastructure
 
   DeliveryRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Join [ "-", [ !Ref Env, ringoid-delivery-role ]]
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -47,6 +55,8 @@ Resources:
 
   DeliveryPolicy:
     Type: AWS::IAM::Policy
+    DependsOn:
+      - DeliveryRole
     Properties:
       PolicyName: !Join [ "-", [ !Ref Env, firehose_delivery_policy ]]
       PolicyDocument:
@@ -76,6 +86,7 @@ Resources:
   DeliveryStream:
     Type: AWS::KinesisFirehose::DeliveryStream
     DependsOn:
+      - DeliveryRole
       - DeliveryPolicy
     Properties:
       DeliveryStreamName: !FindInMap [DeliveryStreamNameMap, !Ref Env, name]
