@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Infrastructure DNS Network Stack
+
+Mappings:
+
+  DomainNameMap:
+    test:
+      name: test.ringoidapp.com
+    stage:
+      name: stage.ringoidapp.com
+    prod:
+      name: prod.ringoidapp.com
+
+  FQDNDomainNameMap:
+    test:
+      name: test.ringoidapp.com.
+    stage:
+      name: stage.ringoidapp.com.
+    prod:
+      name: prod.ringoidapp.com.
+
+Parameters:
+
+  Env:
+    Type: String
+    AllowedValues:
+      - stage
+      - prod
+      - test
+    Default: stage
+    Description: Enter env name
+
+  HostedZoneId:
+    Type: String
+    Default: Z2P177O1ZARJ3
+
+  CertDomainName:
+    Type: String
+    Default: "*.ringoidapp.com"
+
+Resources:
+
+  Cert:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref CertDomainName
+      ValidationMethod: DNS
+
+  APIDomainName:
+    Type: AWS::ApiGateway::DomainName
+    Properties:
+      RegionalCertificateArn: !Ref Cert
+      DomainName: !FindInMap [DomainNameMap, !Ref Env, name]
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !FindInMap [FQDNDomainNameMap, !Ref Env, name]
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt APIDomainName.RegionalDomainName
+        HostedZoneId: !GetAtt APIDomainName.RegionalHostedZoneId
+
+Outputs:
+  APIDomainNameExport:
+    Value: !Ref APIDomainName
+    Export:
+      Name: !Join [ "-", [ !Ref Env, APIDomainNameExport] ]

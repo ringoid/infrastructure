@@ -5,9 +5,9 @@ IMAGE_TAG = 410568660038.dkr.ecr.eu-west-1.amazonaws.com/$(SERVICE_NAME):$(VERSI
 
 BUILD_ARGS=
 
-stage-all: stage-deploy-analytics stage-deploy-stream zip_lambda stage-deploy-alarm
-test-all: test-deploy-analytics test-deploy-stream zip_lambda test-deploy-alarm
-prod-all: prod-deploy-analytics prod-deploy-stream zip_lambda prod-deploy-alarm
+stage-all: stage-deploy-analytics stage-deploy-stream zip_lambda stage-deploy-alarm stage-deploy-network
+test-all: test-deploy-analytics test-deploy-stream zip_lambda test-deploy-alarm test-deploy-network
+prod-all: prod-deploy-analytics prod-deploy-stream zip_lambda prod-deploy-alarm test-deploy-network
 
 build:
 	@echo '--- Building alarm-sender-infrastrucutre function ---'
@@ -53,6 +53,11 @@ test-deploy-alarm: clean
 	@echo 'Deploy test-alarm-stack'
 	sam deploy --template-file alarm-template-packaged.yaml --s3-bucket ringoid-cloudformation-template --stack-name test-infrastructure-alarm-stack --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --parameter-overrides Env=test --no-fail-on-empty-changeset
 
+test-deploy-network: clean
+	@echo 'Package network-template'
+	sam package --template-file common-network-template.yaml --s3-bucket ringoid-cloudformation-template --output-template-file common-network-template-packaged.yaml
+	@echo 'Deploy network-alarm-stack'
+	sam deploy --template-file common-network-template-packaged.yaml --s3-bucket ringoid-cloudformation-template --stack-name test-network-stack --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --parameter-overrides Env=test --no-fail-on-empty-changeset
 
 stage-deploy-analytics: clean
 	@echo 'Package analytics-template'
@@ -71,6 +76,12 @@ stage-deploy-alarm: clean
 	sam package --template-file alarm-template.yaml --s3-bucket ringoid-cloudformation-template --output-template-file alarm-template-packaged.yaml
 	@echo 'Deploy stage-alarm-stack'
 	sam deploy --template-file alarm-template-packaged.yaml --s3-bucket ringoid-cloudformation-template --stack-name stage-infrastructure-alarm-stack --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --parameter-overrides Env=stage --no-fail-on-empty-changeset
+
+stage-deploy-network: clean
+	@echo 'Package network-template'
+	sam package --template-file common-network-template.yaml --s3-bucket ringoid-cloudformation-template --output-template-file common-network-template-packaged.yaml
+	@echo 'Deploy network-alarm-stack'
+	sam deploy --template-file common-network-template-packaged.yaml --s3-bucket ringoid-cloudformation-template --stack-name stage-network-stack --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --parameter-overrides Env=stage --no-fail-on-empty-changeset
 
 
 prod-deploy-analytics: clean
@@ -91,12 +102,19 @@ prod-deploy-alarm: clean
 	@echo 'Deploy prod-alarm-stack'
 	sam deploy --template-file alarm-template-packaged.yaml --s3-bucket ringoid-cloudformation-template --stack-name prod-infrastructure-alarm-stack --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --parameter-overrides Env=prod --no-fail-on-empty-changeset
 
+prod-deploy-network: clean
+	@echo 'Package network-template'
+	sam package --template-file common-network-template.yaml --s3-bucket ringoid-cloudformation-template --output-template-file common-network-template-packaged.yaml
+	@echo 'Deploy network-alarm-stack'
+	sam deploy --template-file common-network-template-packaged.yaml --s3-bucket ringoid-cloudformation-template --stack-name prod-network-stack --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --parameter-overrides Env=prod --no-fail-on-empty-changeset
+
 clean:
 	@echo 'Delete old artifacts'
 	rm -rf neo4j-template-packaged.yaml
 	rm -rf analytics-template-packaged.yaml
 	rm -rf common-stream-template-packaged.yaml
 	rm -rf alarm-template-packaged.yaml
+	rm -rf common-network-template-packaged.yaml
 	rm -rf alarm_sender.zip
 	rm -rf alarm_sender
 	@echo 'Finish with clean'
