@@ -1,0 +1,301 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Infrastructure Redis Cache Stack
+
+Mappings:
+
+  RedisCacheInstanceType:
+    test:
+      type: cache.t2.micro
+    stage:
+      type: cache.t2.micro
+    prod:
+      type: cache.t2.micro
+
+Parameters:
+
+  Env:
+    Type: String
+    AllowedValues:
+      - stage
+      - prod
+      - test
+    Default: stage
+    Description: Enter env name
+
+  DefaultVpc:
+    Type: String
+    Default: vpc-e5537783
+    Description: Default VPC ID
+
+  ImageId:
+    Type: String
+    Default: ami-0acc9f8be17a41897
+    Description: Image Id for Redis ECS Cluster
+
+  InstanceType:
+    Type: String
+    Default: t2.small
+    Description: ECS Instance type
+
+  MinClusterSize:
+    Type: Number
+    Default: 1
+    Description: Min number of instances in the cluster
+
+  MaxClusterSize:
+    Type: Number
+    Default: 1
+    Description: Min number of instances in the cluster
+
+  ContainerName:
+    Type: String
+    Default: redis-container
+    Description: Container name in ECS
+
+  CpuValue:
+    Type: Number
+    Default: 512
+    Description: Cpu value
+
+  MemoryValue:
+    Type: String
+    Default: 1GB
+    Description: Memory value
+
+  MemoryValueNumber:
+    Type: Number
+    Default: 1000
+    Description: Memory value number
+
+  RedisContainerTag:
+    Type: String
+    Default: latest
+    Description: Docker tag
+
+  RedisContainerName:
+    Type: String
+    Default: 410568660038.dkr.ecr.eu-west-1.amazonaws.com/redisservice
+    Description: Docker name
+
+  ContainerName:
+    Type: String
+    Default: redis-container
+    Description: Container name in ECS
+
+Resources:
+
+  RedisEcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Join [ "-", [ !Ref Env, common-cache-cluster] ]
+
+  RedisEcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join [ "-", [ !Ref Env, redis-cache-security-group ]]
+      GroupDescription: Common Redis ECS Security Group
+      VpcId: !Ref DefaultVpc
+      SecurityGroupIngress:
+        -
+          IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Company
+          Value: Ringoid
+        - Key: Environment
+          Value: !Ref Env
+        - Key: Service
+          Value: infrastructure
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service: ec2.amazonaws.com
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+
+  RedisEcsAutoscalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Join [ "-", [ !Ref Env, redis-autoscale-group ]]
+      LaunchConfigurationName: !Ref RedisEcsClusterLaunchConfiguration
+      MinSize: !Ref MinClusterSize
+      MaxSize: !Ref MaxClusterSize
+      HealthCheckType: EC2
+      VPCZoneIdentifier:
+        - subnet-500f9936
+        - subnet-6f8e5d35
+        - subnet-737d1c3b
+      Tags:
+        - Key: Company
+          Value: Ringoid
+          PropagateAtLaunch: true
+        - Key: Environment
+          Value: !Ref Env
+          PropagateAtLaunch: true
+        - Key: Service
+          Value: infrastructure
+          PropagateAtLaunch: true
+
+
+  RedisEcsClusterLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroups: [ !Ref RedisEcsSecurityGroup ]
+      UserData:
+        Fn::Base64: !Sub |
+           #!/bin/bash
+           echo ECS_CLUSTER=${RedisEcsCluster} >> /etc/ecs/ecs.config
+           yum install -y aws-cfn-bootstrap
+           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource RedisEcsAutoscalingGroup --region ${AWS::Region}
+
+  RedisTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Join [ "-", [ !Ref Env, redis-cluster-family ]]
+      ExecutionRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
+      TaskRoleArn: arn:aws:iam::410568660038:role/ecsTaskExecutionRole
+      Cpu: !Ref CpuValue
+      Memory: !Ref MemoryValue
+      ContainerDefinitions:
+        - Name: !Ref ContainerName
+          Image: !Join [':', [!Ref RedisContainerName, !Ref RedisContainerTag]]
+          Cpu: !Ref CpuValue
+          Memory: !Ref MemoryValueNumber
+          MemoryReservation: !Ref MemoryValueNumber
+          PortMappings:
+            - ContainerPort: 6379
+              HostPort: 6379
+          Ulimits:
+            - Name: nofile
+              HardLimit: 100000
+              SoftLimit: 100000
+          Essential: 'true'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref RedisCloudwatchLogsGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: redis
+
+  RedisCloudwatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join [ "-", [ !Ref Env, redis-logs ]]
+      RetentionInDays: 14
+
+  RedisService:
+    DependsOn: RedisLoadBalancerListener
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Join [ "-", [ !Ref Env, redis-service ]]
+      Cluster: !Ref RedisEcsCluster
+      LaunchType: EC2
+      DesiredCount: 1
+      TaskDefinition: !Ref RedisTaskDefinition
+      Role: !Ref ECSServiceRole
+      LoadBalancers:
+        - TargetGroupArn: !Ref RedisLoadBalancerTargetGroup
+          ContainerPort: 6379
+          ContainerName: !Ref ContainerName
+
+  ECSServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['elasticloadbalancing:DeregisterInstancesFromLoadBalancer', 'elasticloadbalancing:DeregisterTargets',
+              'elasticloadbalancing:Describe*', 'elasticloadbalancing:RegisterInstancesWithLoadBalancer',
+              'elasticloadbalancing:RegisterTargets', 'ec2:Describe*', 'ec2:AuthorizeSecurityGroupIngress']
+            Resource: '*'
+
+  RedisLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Join [ "-", [ !Ref Env, cache-elb ]]
+      Type: network
+      Scheme: internet-facing
+      Subnets:
+        - subnet-500f9936
+        - subnet-6f8e5d35
+        - subnet-737d1c3b
+      Tags:
+        - Key: Company
+          Value: Ringoid
+        - Key: Environment
+          Value: !Ref Env
+        - Key: Service
+          Value: infrastructure
+
+  RedisLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref RedisLoadBalancerTargetGroup
+      LoadBalancerArn: !Ref RedisLoadBalancer
+      Port: 6379
+      Protocol: TCP
+
+  RedisLoadBalancerTargetGroup:
+    DependsOn: RedisLoadBalancer
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Join [ "-", [ !Ref Env, cache-elb-target-group ]]
+      Port: 6379
+      Protocol: TCP
+      VpcId: !Ref DefaultVpc
+
+Outputs:
+  RedisLoadBalancerUrlExport:
+    Value:
+      Fn::GetAtt:
+        - RedisLoadBalancer
+        - DNSName
+    Export:
+      Name: !Join [ "-", [ !Ref Env, RedisLoadBalancerUrlExport] ]
+
+
+
