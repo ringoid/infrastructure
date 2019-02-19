@@ -1,42 +1,74 @@
 {
-  "Description": "Neo4j on AWS",
+  "Description": "Neo4j Casual Cluster 3.5.3",
   "AWSTemplateFormatVersion": "2010-09-09",
   "Mappings": {
     "AWSRegionArch2AMI": {
-      "ap-northeast-1": {
-        "64": "ami-06302e6ac02fc6c3e"
-      },
-      "ap-southeast-1": {
-        "64": "ami-0ae3b1104eed0d04c"
-      },
-      "eu-central-1": {
-        "64": "ami-01c3d234360b93e5d"
-      },
-      "eu-west-1": {
-        "64": "ami-0d7656f1b46ca9e7e"
-      },
-      "sa-east-1": {
-        "64": "ami-06b4c3ac60b242457"
-      },
       "us-east-1": {
-        "64": "ami-0b7914d1dfef90465"
+        "64": "ami-0f6db720c2e3c7b68"
       },
       "us-east-2": {
-        "64": "ami-0e8145923643f75ad"
+        "64": "ami-0a366ea274e2488ee"
       },
       "us-west-1": {
-        "64": "ami-0babbbbf2f70e2683"
+        "64": "ami-00d82e0b875e505dc"
       },
       "us-west-2": {
-        "64": "ami-0969943ae3ba4b7f4"
+        "64": "ami-084b94e5c357b909e"
+      },
+      "eu-west-1": {
+        "64": "ami-0572a469fb0d71326"
+      },
+      "eu-central-1": {
+        "64": "ami-05f30083fe95f0fd4"
+      },
+      "ap-southeast-1": {
+        "64": "ami-0cf36d7ad51a09a42"
+      },
+      "ap-northeast-1": {
+        "64": "ami-0e4929e7322b378dd"
+      },
+      "ap-south-1": {
+        "64": "ami-0c9855c2d5f1c6527"
+      },
+      "sa-east-1": {
+        "64": "ami-019a244d7af21895c"
       }
     }
   },
   "Parameters": {
+    "InternalStreamName": {
+      "Description": "Which common stream to use",
+      "Type": "String",
+      "Default": "test-InternalEventStream",
+      "AllowedValues": [
+        "prod-InternalEventStream",
+        "stage-InternalEventStream",
+        "test-InternalEventStream"
+      ]
+    },
+    "BotsEnable": {
+      "Description": "Enable bots or not",
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": [
+        "false",
+        "true"
+      ]
+    },
+    "BotsSqsQueueUrl": {
+      "Description": "Which sqs queue use for bots",
+      "Type": "String",
+      "Default": "https://sqs.eu-west-1.amazonaws.com/410568660038/test-bots-sqs-queue",
+      "AllowedValues": [
+        "https://sqs.eu-west-1.amazonaws.com/410568660038/prod-bots-sqs-queue",
+        "https://sqs.eu-west-1.amazonaws.com/410568660038/stage-bots-sqs-queue",
+        "https://sqs.eu-west-1.amazonaws.com/410568660038/test-bots-sqs-queue"
+      ]
+    },
     "InstanceType": {
       "Description": "EC2 instance type",
       "Type": "String",
-      "Default": "t2.medium",
+      "Default": "r4.large",
       "AllowedValues": [
         "m4.large",
         "m4.xlarge",
@@ -65,7 +97,13 @@
         "r4.2xlarge",
         "r4.4xlarge",
         "r4.8xlarge",
-        "r4.16xlarge"
+        "r4.16xlarge",
+        "r5.large",
+        "r5.xlarge",
+        "r5.2xlarge",
+        "r5.4xlarge",
+        "r5.8xlarge",
+        "r5.16xlarge"
       ],
       "ConstraintDescription": "Must be a valid EC2 instance type."
     },
@@ -73,7 +111,7 @@
       "Description": "Number of core cluster node VMs",
       "Type": "Number",
       "Default": 3,
-      "MinValue": 1,
+      "MinValue": 3,
       "MaxValue": 7
     },
     "ReadReplicas": {
@@ -638,7 +676,7 @@
       "Properties": {
         "AvailabilityZone": {
           "Fn::Select": [
-            2,
+            0,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -1109,6 +1147,11 @@
               "Statement": [
                 {
                   "Effect": "Allow",
+                  "Action": "s3:*",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
                   "Action": "ec2:CreateTags",
                   "Resource": "*"
                 },
@@ -1209,6 +1252,14 @@
             "IpProtocol": "tcp",
             "FromPort": "7473",
             "ToPort": "7473",
+            "CidrIp": {
+              "Ref": "NetworkWhitelist"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "7474",
+            "ToPort": "7474",
             "CidrIp": {
               "Ref": "NetworkWhitelist"
             }
@@ -1366,10 +1417,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -1636,10 +1760,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -1787,7 +1984,7 @@
         },
         "AvailabilityZone": {
           "Fn::Select": [
-            2,
+            0,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -1906,10 +2103,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -2057,7 +2327,7 @@
         },
         "AvailabilityZone": {
           "Fn::Select": [
-            0,
+            1,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -2176,10 +2446,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -2327,7 +2670,7 @@
         },
         "AvailabilityZone": {
           "Fn::Select": [
-            1,
+            0,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -2446,10 +2789,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -2597,7 +3013,7 @@
         },
         "AvailabilityZone": {
           "Fn::Select": [
-            2,
+            1,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -2716,10 +3132,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -2986,10 +3475,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -3256,10 +3818,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -3526,10 +4161,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -3677,7 +4385,7 @@
         },
         "AvailabilityZone": {
           "Fn::Select": [
-            2,
+            0,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -3796,10 +4504,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -3947,7 +4728,7 @@
         },
         "AvailabilityZone": {
           "Fn::Select": [
-            0,
+            1,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -4066,10 +4847,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -4217,7 +5071,7 @@
         },
         "AvailabilityZone": {
           "Fn::Select": [
-            1,
+            0,
             {
               "Fn::GetAZs": {
                 "Ref": "AWS::Region"
@@ -4336,10 +5190,83 @@
                 "#!/bin/bash\n",
                 "#\n",
                 "# This script starts at the launch of a VM, and handles final cluster coordination.\n",
+                "sudo /bin/rm -f /etc/neo4j/password-reset.log\n",
                 "LOGFILE=/home/ubuntu/setup.log\n",
                 "echo `date` 'Preparing Causal Cluster' | tee -a $LOGFILE\n",
                 "\n",
                 "/bin/systemctl stop neo4j.service 2>&1 | tee -a $LOGFILE\n",
+                "mkdir neo4jjars\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/graphaware-server-enterprise-all-3.5.2.jar neo4jjars/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/neo4j-extension-1.0-SNAPSHOT.jar neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/common-1.0-SNAPSHOT.jar neo4jjars/common-1.0-SNAPSHOT.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-sqs-1.11.487.jar neo4jjars/aws-java-sdk-sqs-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-kinesis-1.11.487.jar neo4jjars/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/aws-java-sdk-core-1.11.487.jar neo4jjars/aws-java-sdk-core-1.11.487.jar\n",
+
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/jackson-dataformat-cbor-2.9.8.jar neo4jjars/jackson-dataformat-cbor-2.9.8.jar\n",
+                "aws s3 cp s3://prod-ringoid-neo4j-jars/joda-time-2.10.1.jar neo4jjars/joda-time-2.10.1.jar\n",
+
+                "cp neo4jjars/graphaware-server-enterprise-all-3.5.2.jar /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "cp neo4jjars/neo4j-extension-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "cp neo4jjars/common-1.0-SNAPSHOT.jar /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "cp neo4jjars/aws-java-sdk-sqs-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-kinesis-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "cp neo4jjars/aws-java-sdk-core-1.11.487.jar /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "cp neo4jjars/jackson-dataformat-cbor-2.9.8.jar /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "cp neo4jjars/joda-time-2.10.1.jar /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/graphaware-server-enterprise-all-3.5.2.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/neo4j-extension-1.0-SNAPSHOT.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/common-1.0-SNAPSHOT.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-sqs-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-kinesis-1.11.487.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/aws-java-sdk-core-1.11.487.jar\n",
+
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
+                "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
+
+                "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.BM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.2=com.ringoid.events.runtime.LikeModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.LM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
@@ -4466,7 +5393,7 @@
         "Handle": {
           "Ref": "StackTokenWaitHandle"
         },
-        "Timeout": "900",
+        "Timeout": "1800",
         "Count": "1"
       }
     }
@@ -4492,6 +5419,11 @@
     },
     "Username": {
       "Value": "neo4j"
+    },
+    "Password": {
+      "Value": {
+        "Ref": "Password"
+      }
     },
     "SSH": {
       "Value": {
