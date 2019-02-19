@@ -7,7 +7,7 @@ BUILD_ARGS=
 
 stage-all: stage-deploy-analytics stage-deploy-stream zip_lambda stage-deploy-alarm stage-deploy-network
 test-all: test-deploy-analytics test-deploy-stream zip_lambda test-deploy-alarm test-deploy-network
-prod-all: prod-deploy-analytics prod-deploy-stream zip_lambda prod-deploy-alarm test-deploy-network
+prod-all: prod-deploy-analytics prod-deploy-stream zip_lambda prod-deploy-alarm prod-deploy-network
 
 build:
 	@echo '--- Building alarm-sender-infrastrucutre function ---'
