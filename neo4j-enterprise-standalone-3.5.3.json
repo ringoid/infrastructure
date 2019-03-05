@@ -881,6 +881,23 @@
                 },
                 " >> /etc/neo4j/neo4j.template\n",
 
+                "echo com.graphaware.module.DM.3=com.ringoid.events.runtime.DeleteModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.DM.internal_stream_name=",
+                {
+                  "Ref": "InternalStreamName"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.DM.bots_enable=",
+                {
+                  "Ref": "BotsEnable"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.module.DM.bots_sqs_queue=",
+                {
+                  "Ref": "BotsSqsQueueUrl"
+                },
+                " >> /etc/neo4j/neo4j.template\n",
+
                 "export API=http://169.254.169.254/latest/\n",
                 "export EC2_AVAIL_ZONE=$(curl --silent $API/meta-data/placement/availability-zone)\n",
                 "export EC2_INSTANCE_ID=$(curl -s $API/meta-data/instance-id)\n",
