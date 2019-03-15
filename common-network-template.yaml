@@ -1,4 +1,5 @@
-AWSTemplateFormatVersion: 2010-09-09
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
 Description: Infrastructure DNS Network Stack
 
 Mappings:
@@ -19,6 +20,22 @@ Mappings:
     prod:
       name: prod.ringoidapp.com.
 
+  LoadBalancerName:
+    LoadBalancer:
+      test: test-ringoid-alb
+      stage: stage-ringoid-alb
+      prod: prod-ringoid-alb
+  LoadBalancerSecurityGroupName:
+    LoadBalancerSecurityGroup:
+      test: test-ringoid-alb-sg
+      stage: stage-ringoid-alb-sg
+      prod: prod-ringoid-alb-sg
+  CustomResourceFunctionName:
+    CustomResourceFunction:
+      test: test-custom-create-target-group-function
+      stage: stage-custom-create-target-group-function
+      prod: prod-custom-create-target-group-function
+
 Parameters:
 
   Env:
@@ -38,6 +55,11 @@ Parameters:
     Type: String
     Default: "*.ringoidapp.com"
 
+  DefaultVpc:
+    Type: String
+    Default: vpc-e5537783
+    Description: Default VPC ID
+
 Resources:
 
   Cert:
@@ -46,15 +68,6 @@ Resources:
       DomainName: !Ref CertDomainName
       ValidationMethod: DNS
 
-  APIDomainName:
-    Type: AWS::ApiGateway::DomainName
-    Properties:
-      RegionalCertificateArn: !Ref Cert
-      DomainName: !FindInMap [DomainNameMap, !Ref Env, name]
-      EndpointConfiguration:
-        Types:
-          - REGIONAL
-
   DNSRecord:
     Type: AWS::Route53::RecordSet
     Properties:
@@ -62,11 +75,69 @@ Resources:
       Name: !FindInMap [FQDNDomainNameMap, !Ref Env, name]
       Type: A
       AliasTarget:
-        DNSName: !GetAtt APIDomainName.RegionalDomainName
-        HostedZoneId: !GetAtt APIDomainName.RegionalHostedZoneId
+        DNSName: !GetAtt LoadBalancer.DNSName
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !FindInMap [LoadBalancerName, LoadBalancer, !Ref Env]
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - subnet-500f9936
+        - subnet-6f8e5d35
+        - subnet-737d1c3b
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !FindInMap [LoadBalancerSecurityGroupName, LoadBalancerSecurityGroup, !Ref Env]
+      GroupDescription: Ringoid ALB Security Group
+      VpcId: !Ref DefaultVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref Cert
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: application/json
+            MessageBody: wrongurl
+            StatusCode: 404
+          Order: 5000
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+
+  CustomResourceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !FindInMap [CustomResourceFunctionName, CustomResourceFunction, !Ref Env]
+      Handler: create_target_group
+      CodeUri: ./create_target_group.zip
+      Timeout: 300
+      MemorySize: 512
+      Runtime: go1.x
+      Description: Custom Resource function
+      Policies:
+        - AmazonEC2FullAccess
+        - AWSLambdaFullAccess
 
 Outputs:
-  APIDomainNameExport:
-    Value: !Ref APIDomainName
+  ListenerArnExport:
+    Value: !Ref LoadBalancerListener
     Export:
-      Name: !Join [ "-", [ !Ref Env, APIDomainNameExport] ]
+      Name: !Join [ "-", [ !Ref Env, ListenerArnExport] ]
+  CustomResourceFunctionExport:
+    Value: !GetAtt CustomResourceFunction.Arn
+    Export:
+      Name: !Join [ "-", [ !Ref Env, CustomResourceFunctionExport] ]
+
