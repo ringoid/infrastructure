@@ -88,6 +88,13 @@ Resources:
         - subnet-500f9936
         - subnet-6f8e5d35
         - subnet-737d1c3b
+      Tags:
+        - Key: Company
+          Value: Ringoid
+        - Key: Environment
+          Value: !Ref Env
+        - Key: Service
+          Value: infrastructure
 
   LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
