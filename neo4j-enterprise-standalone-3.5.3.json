@@ -846,6 +846,8 @@
                 "chown neo4j:neo4j /var/lib/neo4j/plugins/jackson-dataformat-cbor-2.9.8.jar\n",
                 "chown neo4j:neo4j /var/lib/neo4j/plugins/joda-time-2.10.1.jar\n",
 
+                "echo com.graphaware.runtime.stats.disabled=true >> /etc/neo4j/neo4j.template\n",
+                "echo com.graphaware.server.stats.disabled=true >> /etc/neo4j/neo4j.template\n",
                 "echo dbms.unmanaged_extension_classes=com.graphaware.server=/graphaware >> /etc/neo4j/neo4j.template\n",
                 "echo com.graphaware.runtime.enabled=true >> /etc/neo4j/neo4j.template\n",
                 "echo com.graphaware.module.BM.1=com.ringoid.events.runtime.BlockModuleBootstrapper >> /etc/neo4j/neo4j.template\n",
